@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contrôle de la Chaudière</title>
+    <script src="https://unpkg.com/vue@3"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* Placez ici les styles existants */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 30px;
+        }
+        .content {
+            display: flex;
+            flex-direction: row;
+            gap: 50px;
+        }
+        .slider-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 30px;
+        }
+        .slider-item {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 20px;
+        }
+        .slider-item label {
+            font-weight: bold;
+            min-width: 120px;
+            text-align: right;
+        }
+        input[type="range"] {
+            writing-mode: bt-lr;
+            transform: rotate(-90deg);
+            height: 150px;
+        }
+        .main-controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 30px;
+        }
+        .switch-container {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 10px;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: grey;
+            transition: 0.4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: green;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        .valve-control {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+        .rotary-control {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            border: 5px solid grey;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .rotary-control .indicator {
+            position: absolute;
+            width: 5px;
+            height: 45px;
+            background-color: red;
+            transform-origin: bottom;
+            transform: rotate(0deg);
+            transition: transform 0.3s;
+            margin-bottom: 45px;
+        }
+        .rotary-control .label {
+            position: absolute;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .label-0 {
+            top: -20%;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .label-2 {
+            bottom: 15%;
+            left: -15%;
+            transform: translate(-50%, 50%);
+        }
+        .label-1 {
+            bottom: 15%;
+            right: -20%;
+            transform: translate(50%, 50%);
+        }
+        .leds {
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .led {
+            width: 20px;
+            height: 20px;
+            display: inline-block;
+            border-radius: 50%;
+            background-color: grey;
+        }
+        .led.on {
+            background-color: green;
+        }
+        .led.heating {
+            width: 20px;
+            height: 20px;
+            display: inline-block;
+            border-radius: 50%;
+            background-color: grey; /* Éteint */
+        }
+
+        .led.heating.on {
+            background-color: red; /* Allumé */
+        }
+
+
+    </style>
+</head>
+<body>
+    <div id="app">
+        <h1>Contrôle de la Chaudière</h1>
+        <div class="content">
+            <div class="slider-container">
+                <div class="slider-item" v-for="(temp, index) in temperatures" :key="index">
+                    <label :for="`slider${index}`">Température {{ index + 1 }}</label>
+                    <input
+                        type="range"
+                        :id="`slider${index}`"
+                        min="15"
+                        max="30"
+                        step="0.1"
+                        :value="temp"
+                        @input="handleSliderInput(index, $event.target.value)"
+                    />
+                    <span>{{ typeof temp === 'number' ? temp.toFixed(1) : 'N/A' }}°C</span>
+                </div>
+            </div>
+            <div class="main-controls">
+                <div class="switch-container">
+                    <label>Brûleur :</label>
+                    <label class="switch">
+                        <input type="checkbox" v-model="burnerState" @change="updateBurnerState" />
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="main-controls">
+                    <div class="switch-container">
+                        <label>Demande de Chauffage :</label>
+                        <span class="led heating" :class="{ on: heatingRequest }"></span>
+                    </div>
+                </div>
+                
+                <div class="valve-control">
+                    <label><strong>Vanne</strong></label>
+                    <div class="rotary-control" @click="cycleValveMode">
+                        <div
+                            class="indicator"
+                            :style="{ transform: `rotate(${valveMode * 120}deg)` }"
+                        ></div>
+                        <div class="label label-0">0</div>
+                        <div class="label label-2">2</div>
+                        <div class="label label-1">1</div>
+                    </div>
+                    <div class="leds">
+                        <span class="led" :class="{ on: valveMode === 1 }"></span> Position ECS
+                        <span class="led" :class="{ on: valveMode === 2 }"></span> Position Chauffage
+                    </div>
+                </div>
+            </div>
+            
+    
+    <script>
+        const socket = io();
+    
+        const app = Vue.createApp({
+    data() {
+        return {
+            temperatures: [20.0, 22.5, 25.0],
+            burnerState: false,
+            valveMode: 0,
+            heatingRequest: false, // Pour la demande de chauffage
+            ledState: 0, // État de la LED
+        };
+    },
+    methods: {
+        handleSliderInput(index, value) {
+            const numericValue = parseFloat(value);
+            if (!isNaN(numericValue)) {
+                this.temperatures[index] = numericValue;
+                socket.emit('setTemperature', { index, value: numericValue });
+            }
+        },
+        updateBurnerState() {
+            socket.emit('setBurnerState', { state: this.burnerState ? 1 : 0 });
+        },
+        cycleValveMode() {
+            this.valveMode = (this.valveMode + 1) % 3;
+            socket.emit('setValveMode', { mode: this.valveMode });
+        },
+        toggleHeatingRequest() {
+            this.heatingRequest = !this.heatingRequest;
+            socket.emit('setHeatingRequest', { state: this.heatingRequest ? 1 : 0 });
+        },
+        toggleLedState() {
+            this.ledState = this.ledState === 0 ? 1 : 0; // Alterne entre 0 et 1
+            socket.emit('setLedState', { state: this.ledState }); // Envoyer au serveur
+        },
+    },
+    mounted() {
+        socket.on('updateState', (state) => {
+            this.temperatures = state.temperatures.map((temp) => parseFloat(temp) || 0);
+            this.burnerState = !!state.burnerState;
+            this.valveMode = state.valveMode;
+            this.heatingRequest = !!state.heatingRequest; // Mise à jour de la demande de chauffage
+        });
+
+        socket.on('updateTemperatures', (temps) => {
+            this.temperatures = temps.map((temp) => parseFloat(temp) || 0);
+        });
+
+        socket.on('updateHeatingRequest', (state) => {
+            this.heatingRequest = !!state; // Synchronisation de l'état
+        });
+
+        socket.on('updateLedState', (state) => {
+            this.ledState = state; // Mise à jour de l'état de la LED
+        });
+    },
+});
+
+app.mount('#app');
+
+    </script>    
+</body>
+</html>

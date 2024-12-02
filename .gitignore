@@ -1,0 +1,10 @@
+# Ignorer les répertoires spécifiques
+node_modules/
+dist/
+.env
+
+# Ignorer un fichier spécifique
+secret.txt
+
+# Ignorer tous les fichiers avec une extension particulière
+*.log
